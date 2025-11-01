@@ -1,4 +1,4 @@
-import type { Message, ToolCall } from '../types';
+import type { Message, ToolCall, TokenUsage } from '../types';
 
 export interface StreamingParserCallbacks {
   onTextUpdate: (messageId: string, content: string) => void;
@@ -8,6 +8,7 @@ export interface StreamingParserCallbacks {
   onMessageUpdate: (messageId: string, updates: Partial<Message>) => void;
   onToolResult: (toolCallId: string, result?: unknown, error?: string) => void;
   onNewMessageCycle?: (previousMessageId: string) => string; // Returns new message ID
+  onTokenUsage?: (messageId: string, tokenUsage: TokenUsage) => void;
 }
 
 export class StreamingParser {
@@ -44,18 +45,33 @@ export class StreamingParser {
   private parseLine(line: string): void {
     if (!line || !line.startsWith('data: ')) return;
 
-    try {
-      const jsonStr = line.substring(6); // Remove 'data: ' prefix
+    const dataStr = line.substring(6); // Remove 'data: ' prefix
 
-      // Skip Python string representations (they start with single quotes)
-      // Only parse valid JSON objects/arrays
-      if (jsonStr.startsWith('{') || jsonStr.startsWith('[')) {
-        const data = JSON.parse(jsonStr);
+    try {
+      // Try parsing as JSON first
+      if (dataStr.startsWith('{') || dataStr.startsWith('[') || dataStr.startsWith('"')) {
+        const data = JSON.parse(dataStr);
+        // If the JSON parses to a string, it might be a Python string representation
+        if (typeof data === 'string') {
+          this.handlePythonStringResult(data);
+          return;
+        }
         this.handleData(data);
+        return;
+      }
+
+      // Handle Python string representations (they start with single quotes)
+      if (dataStr.startsWith("'") || dataStr.startsWith('"')) {
+        // Try to extract result with accumulated_usage
+        this.handlePythonStringResult(dataStr);
       }
     } catch (e) {
-      // Skip invalid JSON (like Python string representations)
-      console.debug('Skipping non-JSON line:', line);
+      // If JSON parsing fails, try as Python string
+      if (dataStr.includes('accumulated_usage')) {
+        this.handlePythonStringResult(dataStr);
+      } else {
+        console.debug('Skipping non-JSON line:', line);
+      }
     }
   }
 
@@ -347,6 +363,33 @@ export class StreamingParser {
           status === 'completed' ? result : undefined,
           status === 'error' ? String(result) : undefined
         );
+      }
+    }
+  }
+
+  private handlePythonStringResult(pythonStr: string): void {
+    // Remove surrounding quotes if present
+    const unquoted = pythonStr
+      .replace(/^['"]/, '')
+      .replace(/['"]$/, '')
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"');
+
+    // Extract accumulated_usage from the Python string representation
+    // Pattern: accumulated_usage={'inputTokens': number, 'outputTokens': number, 'totalTokens': number}
+    const accumulatedUsageMatch = unquoted.match(
+      /accumulated_usage\s*=\s*\{['"]inputTokens['"]:\s*(\d+),\s*['"]outputTokens['"]:\s*(\d+),\s*['"]totalTokens['"]:\s*(\d+)\}/
+    );
+
+    if (accumulatedUsageMatch) {
+      const tokenUsage = {
+        inputTokens: parseInt(accumulatedUsageMatch[1], 10),
+        outputTokens: parseInt(accumulatedUsageMatch[2], 10),
+        totalTokens: parseInt(accumulatedUsageMatch[3], 10),
+      };
+
+      if (this.callbacks.onTokenUsage) {
+        this.callbacks.onTokenUsage(this.assistantMessageId, tokenUsage);
       }
     }
   }

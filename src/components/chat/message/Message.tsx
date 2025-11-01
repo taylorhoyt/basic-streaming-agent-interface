@@ -33,8 +33,19 @@ export default function Message({ message, getToolCall }: MessageProps) {
         {message.isStreaming && (
           <span className="inline-block ml-2 w-2 h-4 bg-gray-400 animate-pulse" />
         )}
-        <div className="mt-2 text-xs opacity-60">
-          {new Date(message.timestamp).toLocaleTimeString()}
+        <div className="mt-2 flex items-center justify-between">
+          <div className="text-xs opacity-60">
+            {new Date(message.timestamp).toLocaleTimeString()}
+          </div>
+          {message.tokenUsage && (
+            <div className="text-xs opacity-60 flex items-center gap-3">
+              <span>Tokens: {message.tokenUsage.totalTokens.toLocaleString()}</span>
+              <span className="opacity-50">
+                ({message.tokenUsage.inputTokens.toLocaleString()} in /{' '}
+                {message.tokenUsage.outputTokens.toLocaleString()} out)
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

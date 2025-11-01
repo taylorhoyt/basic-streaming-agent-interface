@@ -202,6 +202,13 @@ export default function ChatInterface() {
               }
             });
           },
+          onTokenUsage: (messageId: string, tokenUsage) => {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === messageId ? { ...msg, tokenUsage } : msg
+              )
+            );
+          },
         });
 
         await parser.parseStream(reader);

@@ -13,6 +13,12 @@ export interface ToolCall {
   messageId: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -20,6 +26,7 @@ export interface Message {
   timestamp: number;
   toolCalls?: string[]; // Array of tool call IDs
   isStreaming?: boolean;
+  tokenUsage?: TokenUsage;
 }
 
 export interface StreamingEvent {
