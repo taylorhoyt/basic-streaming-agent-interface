@@ -6,10 +6,30 @@ import ToolCallsPanel from './tools/ToolCallsPanel';
 import StreamingIndicator from '../indicators/StreamingIndicator';
 import SettingsModal from '../modals/SettingsModal';
 import type { Message, ToolCall, ConversationSettings } from '../../types';
+import { StreamingParser } from '../../utils/streamParser';
 
 const defaultSettings: ConversationSettings = {
-  endpoint: '',
+  endpoint: 'http://localhost:8080/invocations',
   credentials: {},
+};
+
+// Helper to normalize endpoint URL - use proxy in development for localhost
+const normalizeEndpoint = (endpoint: string): string => {
+  try {
+    const url = new URL(endpoint);
+    // If it's localhost:8080, use the proxy path
+    if (url.hostname === 'localhost' && url.port === '8080') {
+      return `/api${url.pathname}`;
+    }
+    // Otherwise return as-is
+    return endpoint;
+  } catch {
+    // If it's not a valid URL, check if it's already a relative path
+    if (endpoint.startsWith('/')) {
+      return endpoint;
+    }
+    return endpoint;
+  }
 };
 
 export default function ChatInterface() {
@@ -22,30 +42,199 @@ export default function ChatInterface() {
     return saved ? JSON.parse(saved) : defaultSettings;
   });
 
-  const handleSend = useCallback((content: string) => {
-    const userMessage: Message = {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      content,
-      timestamp: Date.now(),
-    };
+  const handleSend = useCallback(
+    async (content: string) => {
+      if (!settings.endpoint) {
+        alert('Please configure the endpoint in settings first.');
+        return;
+      }
 
-    setMessages((prev) => [...prev, userMessage]);
-    setIsStreaming(true);
-
-    // TODO: Implement actual streaming agent call
-    // For now, just add a placeholder response
-    setTimeout(() => {
-      const agentMessage: Message = {
-        id: `msg-${Date.now() + 1}`,
-        role: 'assistant',
-        content: 'This is a placeholder response. Streaming functionality will be implemented next.',
+      const userMessage: Message = {
+        id: `msg-${Date.now()}`,
+        role: 'user',
+        content,
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, agentMessage]);
-      setIsStreaming(false);
-    }, 1000);
-  }, []);
+
+      setMessages((prev) => [...prev, userMessage]);
+      setIsStreaming(true);
+
+      // Create assistant message immediately for streaming
+      const assistantMessageId = `msg-${Date.now() + 1}`;
+      const assistantMessage: Message = {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+        isStreaming: true,
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      try {
+        const endpointUrl = normalizeEndpoint(settings.endpoint);
+        const response = await fetch(endpointUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ prompt: content }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        if (!response.body) {
+          throw new Error('No response body');
+        }
+
+        const reader = response.body.getReader();
+
+        // Create parser with callbacks
+        const parser = new StreamingParser(assistantMessageId, {
+          onTextUpdate: (messageId: string, content: string) => {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === messageId ? { ...msg, content } : msg
+              )
+            );
+          },
+          onNewMessageCycle: (_previousMessageId: string) => {
+            // Create a new assistant message for the next cycle
+            const newAssistantMessageId = `msg-${Date.now()}`;
+            const newAssistantMessage: Message = {
+              id: newAssistantMessageId,
+              role: 'assistant',
+              content: '',
+              timestamp: Date.now(),
+              isStreaming: true,
+            };
+            setMessages((prev) => [...prev, newAssistantMessage]);
+            return newAssistantMessageId;
+          },
+          onToolCallCreate: (toolCall: ToolCall) => {
+            setToolCalls((prev) => [...prev, toolCall]);
+          },
+          onToolCallUpdate: (toolCallId: string, updates: Partial<ToolCall>) => {
+            setToolCalls((prev) => {
+              const existing = prev.find((tc) => tc.id === toolCallId);
+              if (existing) {
+                // Update existing tool call
+                return prev.map((tc) =>
+                  tc.id === toolCallId ? { ...tc, ...updates } : tc
+                );
+              } else {
+                // Create new tool call if it doesn't exist
+                const newToolCall: ToolCall = {
+                  id: toolCallId,
+                  toolName: updates.toolName || '',
+                  parameters: updates.parameters || {},
+                  status: (updates.status as ToolCall['status']) || 'executing',
+                  timestamp: Date.now(),
+                  messageId: assistantMessageId,
+                  ...updates,
+                };
+                return [...prev, newToolCall];
+              }
+            });
+          },
+          onToolCallLinkToMessage: (messageId: string, toolCallId: string) => {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === messageId
+                  ? {
+                      ...msg,
+                      toolCalls: [...(msg.toolCalls || []), toolCallId],
+                    }
+                  : msg
+              )
+            );
+          },
+          onMessageUpdate: (messageId: string, updates: Partial<Message>) => {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === messageId
+                  ? {
+                      ...msg,
+                      ...updates,
+                      toolCalls:
+                        'toolCalls' in updates && updates.toolCalls
+                          ? [
+                              ...(msg.toolCalls || []),
+                              ...updates.toolCalls.filter(
+                                (id) => !msg.toolCalls?.includes(id)
+                              ),
+                            ]
+                          : msg.toolCalls,
+                    }
+                  : msg
+              )
+            );
+          },
+          onToolResult: (toolCallId: string, result?: unknown, error?: string) => {
+            setToolCalls((prev) => {
+              const existing = prev.find((tc) => tc.id === toolCallId);
+              if (existing) {
+                return prev.map((tc) =>
+                  tc.id === toolCallId
+                    ? {
+                        ...tc,
+                        status: error ? 'error' : 'completed',
+                        result,
+                        error,
+                      }
+                    : tc
+                );
+              } else {
+                // Create tool call if it doesn't exist (shouldn't happen, but be safe)
+                const newToolCall: ToolCall = {
+                  id: toolCallId,
+                  toolName: 'unknown',
+                  parameters: {},
+                  status: error ? 'error' : 'completed',
+                  timestamp: Date.now(),
+                  messageId: assistantMessageId,
+                  result,
+                  error,
+                };
+                return [...prev, newToolCall];
+              }
+            });
+          },
+        });
+
+        await parser.parseStream(reader);
+
+        // Ensure streaming is marked as complete
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, isStreaming: false }
+              : msg
+          )
+        );
+      } catch (error) {
+        console.error('Streaming error:', error);
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? {
+                  ...msg,
+                  content:
+                    msg.content ||
+                    `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                  isStreaming: false,
+                }
+              : msg
+          )
+        );
+      } finally {
+        setIsStreaming(false);
+      }
+    },
+    [settings.endpoint]
+  );
 
   const handleClearConversation = useCallback(() => {
     if (confirm('Are you sure you want to clear the conversation?')) {
