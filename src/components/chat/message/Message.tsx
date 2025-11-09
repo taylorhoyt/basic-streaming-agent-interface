@@ -1,5 +1,6 @@
 import type { Message as MessageType, ToolCall } from '../../../types';
 import ToolCallIndicator from '../tools/ToolCallIndicator';
+import ReactMarkdown from 'react-markdown';
 
 interface MessageProps {
   message: MessageType;
@@ -18,7 +19,9 @@ export default function Message({ message, getToolCall }: MessageProps) {
             : 'bg-gray-800 text-gray-100 border border-gray-700'
         }`}
       >
-        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        <div className="break-words">
+          <ReactMarkdown>{message.content}</ReactMarkdown>
+        </div>
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {message.toolCalls.map((toolCallId) => (
