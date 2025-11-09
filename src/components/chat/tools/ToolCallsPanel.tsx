@@ -1,36 +1,29 @@
-import { useState } from 'react';
 import ToolCallCard from './ToolCallCard';
 import type { ToolCall } from '../../../types';
 
 interface ToolCallsPanelProps {
   toolCalls: ToolCall[];
+  width: number;
+  isVisible: boolean;
+  onClose: () => void;
 }
 
-export default function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
-  const [isVisible, setIsVisible] = useState(true);
-
+export default function ToolCallsPanel({ toolCalls, width, isVisible, onClose }: ToolCallsPanelProps) {
   if (!isVisible) {
-    return (
-      <div className="w-12 border-l border-gray-700 bg-gray-900 flex items-center">
-        <button
-          onClick={() => setIsVisible(true)}
-          className="w-full h-full flex items-center justify-center text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors font-mono text-xs writing-vertical-rl"
-          style={{ writingMode: 'vertical-rl' }}
-        >
-          Tool Calls ({toolCalls.length})
-        </button>
-      </div>
-    );
+    return null;
   }
 
   return (
-    <div className="w-80 border-l border-gray-700 bg-gray-900 flex flex-col">
+    <div
+      className="border-l border-gray-700 bg-gray-900 flex flex-col flex-shrink-0"
+      style={{ width: `${width}px` }}
+    >
       <div className="flex items-center justify-between p-3 border-b border-gray-700">
         <h2 className="font-mono text-sm font-semibold text-white">
           Tool Calls ({toolCalls.length})
         </h2>
         <button
-          onClick={() => setIsVisible(false)}
+          onClick={onClose}
           className="text-gray-400 hover:text-gray-200 font-mono text-xs"
         >
           ✕

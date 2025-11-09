@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import Header from '../headers/Header';
 import MessageList from './message/MessageList';
 import ChatInput from './ChatInput';
@@ -41,6 +41,13 @@ export default function ChatInterface() {
     const saved = localStorage.getItem('agentcore-settings');
     return saved ? JSON.parse(saved) : defaultSettings;
   });
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const saved = localStorage.getItem('agentcore-panel-width');
+    return saved ? parseInt(saved, 10) : 320; // Default 320px (w-80)
+  });
+  const [isPanelVisible, setIsPanelVisible] = useState(true);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizerRef = useRef<HTMLDivElement>(null);
 
   const handleSend = useCallback(
     async (content: string) => {
@@ -270,6 +277,46 @@ export default function ChatInterface() {
     [toolCalls]
   );
 
+  // Handle panel resizing
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      
+      const newWidth = window.innerWidth - e.clientX;
+      const minWidth = 200;
+      const maxWidth = Math.min(window.innerWidth * 0.6, 800);
+      
+      if (newWidth >= minWidth && newWidth <= maxWidth) {
+        setPanelWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      if (panelWidth) {
+        localStorage.setItem('agentcore-panel-width', panelWidth.toString());
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, panelWidth]);
+
+  const handleResizeStart = useCallback(() => {
+    setIsResizing(true);
+  }, []);
+
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
       <Header
@@ -285,7 +332,33 @@ export default function ChatInterface() {
           <StreamingIndicator isStreaming={isStreaming} />
           <ChatInput onSend={handleSend} disabled={isStreaming} />
         </div>
-        <ToolCallsPanel toolCalls={toolCalls} />
+        {isPanelVisible && (
+          <>
+            <div
+              ref={resizerRef}
+              onMouseDown={handleResizeStart}
+              className="w-0.5 bg-gray-700 hover:bg-gray-500 cursor-col-resize transition-colors flex-shrink-0"
+              style={{ cursor: 'col-resize' }}
+            />
+            <ToolCallsPanel
+              toolCalls={toolCalls}
+              width={panelWidth}
+              isVisible={isPanelVisible}
+              onClose={() => setIsPanelVisible(false)}
+            />
+          </>
+        )}
+        {!isPanelVisible && (
+          <div className="w-12 border-l border-gray-700 bg-gray-900 flex items-center">
+            <button
+              onClick={() => setIsPanelVisible(true)}
+              className="w-full h-full flex items-center justify-center text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors font-mono text-xs writing-vertical-rl"
+              style={{ writingMode: 'vertical-rl' }}
+            >
+              Tool Calls ({toolCalls.length})
+            </button>
+          </div>
+        )}
       </div>
       <SettingsModal
         isOpen={isSettingsOpen}
