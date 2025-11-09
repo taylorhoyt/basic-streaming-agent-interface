@@ -1,5 +1,6 @@
 import ToolCallCard from './ToolCallCard';
 import type { ToolCall } from '../../../types';
+import { X } from 'lucide-react';
 
 interface ToolCallsPanelProps {
   toolCalls: ToolCall[];
@@ -19,14 +20,14 @@ export default function ToolCallsPanel({ toolCalls, width, isVisible, onClose }:
       style={{ width: `${width}px` }}
     >
       <div className="flex items-center justify-between p-3 border-b border-gray-700">
-        <h2 className="font-mono text-sm font-semibold text-white">
+        <h6 className="font-mono text-sm font-semibold text-white">
           Tool Calls ({toolCalls.length})
-        </h2>
+        </h6>
         <button
           onClick={onClose}
           className="text-gray-400 hover:text-gray-200 font-mono text-xs"
         >
-          ✕
+          <X className="w-4 h-4 text-gray-400 hover:text-gray-200" />
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
